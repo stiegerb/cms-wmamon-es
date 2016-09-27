@@ -8,7 +8,8 @@ from argparse import ArgumentParser
 from WMAMonElasticInterface import WMAMonElasticInterface
 
 CERT_FILE='/home/stiegerb/.globus/usercert.pem'
-KEY_FILE='/home/stiegerb/.globus/userkey.pem'
+KEY_FILE='/home/stiegerb/.globus/plainkey.pem'
+# KEY_FILE='/home/stiegerb/.globus/userkey.pem'
 
 _data = None
 def load_data_local(filename='agentinfo.json'):
@@ -25,15 +26,13 @@ def load_data_from_cmsweb():
 	urn = "/couchdb/wmstats/_design/WMStatsErl/_view/agentInfo"
 	headers = {"Content-type": "application/json", "Accept": "application/json"}
 	con.request("GET", urn, headers=headers)
-	res = con.getresponse()
-	_data = json.load(res)
+	_data = json.load(con.getresponse())
 
-	## FIXME: Replace this with requests module
+	# ## TODO: Replace this with requests module
 	# import requests
-	# Something like this:
-	# res = requests.get("https://cmsweb.cern.ch/couchdb/wmstats/_design/WMStatsErl/_view/agentInfo", cert=(CERT_FILE, KEY_FILE))
+	# url = 'https://cmsweb.cern.ch/couchdb/wmstats/_design/WMStatsErl/_view/agentInfo'
+	# res = requests.get(url, cert=(CERT_FILE, KEY_FILE), verify=CERT_FILE) # FIXME fails certificate verification
 	# _data = res.json()
-	# SSLError ?
 
 _processed_data = None
 def process_data():
@@ -46,16 +45,18 @@ def process_data():
 
 
 def main(args):
-    es_interface = WMAMonElasticInterface(index_name='wmamon-dummy', recreate=args.recreate_index)
+    es_interface = WMAMonElasticInterface(hosts=['localhost:9200'],
+    									  index_name='wmamon-dummy',
+    	                                  recreate=args.recreate_index,
+    	                                  log_level=10, # DEBUG
+    	                                  log_dir='/home/stiegerb/wmamon_es/log')
 
-    print 30*'-'
     process_data()
 
-    # es_interface.bulk_inject_from_list(_processed_data)
     res = es_interface.bulk_inject_from_list_checked(_processed_data)
     # es_interface.inject_single_checked(_processed_data[0])
 
-    # return 0
+    return 0
 
 if __name__ == '__main__':
     parser = ArgumentParser()
@@ -66,5 +67,4 @@ if __name__ == '__main__':
                         type=str, dest="index_prefix",
                         help="Index prefix to use [default: %(default)s")
     args = parser.parse_args()
-    main(args)
-    # sys.exit(main(args))
+    sys.exit(main(args))
