@@ -48,7 +48,7 @@ def main(args):
     es_interface = WMAMonElasticInterface(hosts=['localhost:9200'],
     									  index_name='wmamon-dummy',
     	                                  recreate=args.recreate_index,
-    	                                  log_level=10, # DEBUG
+    	                                  log_level=20, # INFO
     	                                  log_dir='/home/stiegerb/wmamon_es/log')
 
     process_data()

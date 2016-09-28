@@ -40,7 +40,7 @@ class WMAMonElasticInterface(object):
         self.es_handle = Elasticsearch(hosts=hosts)
         self.index_name = None
 
-        self.logger = self.set_up_logger(log_dir, log_level=logging.DEBUG)
+        self.logger = self.set_up_logger(log_dir, log_level=log_level)
         self.make_index(index_name, recreate=recreate, mappings=self.create_mappings())
 
     def set_up_logger(self, log_dir, log_level=logging.DEBUG):
@@ -155,6 +155,10 @@ class WMAMonElasticInterface(object):
                     "size" : 1,
                     "_source" : ["timestamp", "agent_url"]
                 }
-        res = self.es_handle.search(body=json.dumps(query), index=self.index_name)
+        try:
+            res = self.es_handle.search(body=json.dumps(query), index=self.index_name, timeout='5s')
+        except elasticsearch.exceptions.ConnectionTimeout as e:
+            print repr(e)
+            self.logger.error(repr(e))
         return res['hits']['total'] > 0
 
