@@ -158,7 +158,6 @@ class WMAMonElasticInterface(object):
         try:
             res = self.es_handle.search(body=json.dumps(query), index=self.index_name, timeout='5s')
         except elasticsearch.exceptions.ConnectionTimeout as e:
-            print repr(e)
             self.logger.error(repr(e))
         return res['hits']['total'] > 0
 
