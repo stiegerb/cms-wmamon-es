@@ -27,6 +27,30 @@ def helpers_bulk_syntax(doc, index_name, type_name, action='index'):
     }
     return action
 
+def wma_mapping(doc_type="agent_info"):
+    mapping = {
+        "mappings" : {
+            doc_type : {
+                "properties" : {
+                    "timestamp" : {
+                        "type"   : "date",
+                        "format" : "epoch_second"
+                    },
+                    "agent_url" : {
+                        "type" : "string",
+                        "fields" : {
+                            "raw" : {
+                                "type" : "string",
+                                "index" : "not_analyzed"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return mapping
+
 class WMAMonElasticInterface(object):
     """docstring for WMAMonElasticInterface"""
     def __init__(self,
@@ -41,7 +65,8 @@ class WMAMonElasticInterface(object):
         self.index_name = None
 
         self.logger = self.set_up_logger(log_dir, log_level=log_level)
-        self.make_index(index_name, recreate=recreate, mappings=self.create_mappings())
+        self.make_index(index_name, recreate=recreate,
+                        mappings=json.dumps(wma_mapping(doc_type=self.doc_type)))
 
     def set_up_logger(self, log_dir, log_level=logging.DEBUG):
         if not log_dir:
@@ -58,22 +83,6 @@ class WMAMonElasticInterface(object):
         logger.addHandler(filehandler)
 
         return logger
-
-    def create_mappings(self):
-        # map the timestamp field to be recognized as a date
-        mapping = {
-            "mappings" : {
-                self.doc_type : {
-                    "properties" : {
-                        "timestamp" : {
-                            "type"   : "date",
-                            "format" : "epoch_second"
-                        }
-                    }
-                }
-            }
-        }
-        return json.dumps(mapping)
 
     def make_index(self, name, recreate=False, mappings=None):
         """Create the index and set mappings and settings"""
