@@ -61,7 +61,7 @@ class WMAMonElasticInterface(object):
                  recreate=False,
                  hosts=None):
         self.doc_type = doc_type
-        self.es_handle = Elasticsearch(hosts=hosts)
+        self.es_handle = Elasticsearch(hosts=hosts) # FIXME: Add check here
         self.index_name = None
 
         self.logger = self.set_up_logger(log_dir, log_level=log_level)
