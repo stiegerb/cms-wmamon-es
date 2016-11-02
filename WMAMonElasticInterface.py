@@ -9,6 +9,9 @@ from logging.handlers import RotatingFileHandler
 from elasticsearch import Elasticsearch
 from elasticsearch import helpers
 
+from elasticsearch.exceptions import ConnectionError
+from elasticsearch.exceptions import ConnectionTimeout
+
 def replace_id(doc):
     """Elastic doesn't like _id fields. Rename field name to _id_prev"""
     _id = doc.pop('_id', None)
@@ -61,12 +64,25 @@ class WMAMonElasticInterface(object):
                  recreate=False,
                  hosts=None):
         self.doc_type = doc_type
-        self.es_handle = Elasticsearch(hosts=hosts) # FIXME: Add check here
         self.index_name = None
-
         self.logger = self.set_up_logger(log_dir, log_level=log_level)
+
+        self.es_handle = Elasticsearch(hosts=hosts)
+        if not self.check_connection():
+            return
+
         self.make_index(index_name, recreate=recreate,
                         mappings=json.dumps(wma_mapping(doc_type=self.doc_type)))
+
+    def check_connection(self):
+        try:
+            self.es_handle.ping()
+            self.connected = True
+            return True
+        except ConnectionError:
+            self.logger.critical("Elasticsearch connection failed")
+            self.connected = False
+            return False
 
     def set_up_logger(self, log_dir, log_level=logging.DEBUG):
         if not log_dir:
@@ -166,7 +182,7 @@ class WMAMonElasticInterface(object):
                 }
         try:
             res = self.es_handle.search(body=json.dumps(query), index=self.index_name, timeout='5s')
-        except elasticsearch.exceptions.ConnectionTimeout as e:
+        except ConnectionTimeout as e:
             self.logger.error(repr(e))
         return res['hits']['total'] > 0
 

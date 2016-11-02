@@ -51,6 +51,9 @@ def main(args):
     	                                  log_level=20, # INFO
     	                                  log_dir='/home/stiegerb/wmamon_es/log')
 
+    if not es_interface.connected:
+    	return -1
+
     process_data()
 
     res = es_interface.bulk_inject_from_list_checked(_processed_data)
