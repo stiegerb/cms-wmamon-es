@@ -13,46 +13,46 @@ KEY_FILE='/home/stiegerb/.globus/plainkey.pem'
 
 _data = None
 def load_data_local(filename='agentinfo.json'):
-	global _data
-	with open(filename, 'r') as ifile:
-		data = json.load(ifile)
+    global _data
+    with open(filename, 'r') as ifile:
+        data = json.load(ifile)
 
-	_data = data
+    _data = data
 
 def load_data_from_cmsweb():
-	global _data
-	from httplib import HTTPSConnection
-	con = HTTPSConnection("cmsweb.cern.ch", cert_file=CERT_FILE, key_file=KEY_FILE)
-	urn = "/couchdb/wmstats/_design/WMStatsErl/_view/agentInfo"
-	headers = {"Content-type": "application/json", "Accept": "application/json"}
-	con.request("GET", urn, headers=headers)
-	_data = json.load(con.getresponse())
+    global _data
+    from httplib import HTTPSConnection
+    con = HTTPSConnection("cmsweb.cern.ch", cert_file=CERT_FILE, key_file=KEY_FILE)
+    urn = "/couchdb/wmstats/_design/WMStatsErl/_view/agentInfo"
+    headers = {"Content-type": "application/json", "Accept": "application/json"}
+    con.request("GET", urn, headers=headers)
+    _data = json.load(con.getresponse())
 
-	# ## TODO: Replace this with requests module
-	# import requests
-	# url = 'https://cmsweb.cern.ch/couchdb/wmstats/_design/WMStatsErl/_view/agentInfo'
-	# res = requests.get(url, cert=(CERT_FILE, KEY_FILE), verify=CERT_FILE) # FIXME fails certificate verification
-	# _data = res.json()
+    # ## TODO: Replace this with requests module
+    # import requests
+    # url = 'https://cmsweb.cern.ch/couchdb/wmstats/_design/WMStatsErl/_view/agentInfo'
+    # res = requests.get(url, cert=(CERT_FILE, KEY_FILE), verify=CERT_FILE) # FIXME fails certificate verification
+    # _data = res.json()
 
 _processed_data = None
 def process_data():
-	global _processed_data
-	if not _data:
-		load_data_from_cmsweb()
-		# load_data()
+    global _processed_data
+    if not _data:
+        load_data_from_cmsweb()
+        # load_data()
 
-	_processed_data = [r['value'] for r in _data['rows']]
+    _processed_data = [r['value'] for r in _data['rows']]
 
 
 def main(args):
     es_interface = WMAMonElasticInterface(hosts=['localhost:9200'],
-    									  index_name='wmamon-dummy',
-    	                                  recreate=args.recreate_index,
-    	                                  log_level=20, # INFO
-    	                                  log_dir='/home/stiegerb/wmamon_es/log')
+                                          index_name='wmamon-dummy',
+                                          recreate=args.recreate_index,
+                                          log_level=20, # INFO
+                                          log_dir='/home/stiegerb/wmamon_es/log')
 
     if not es_interface.connected:
-    	return -1
+        return -1
 
     process_data()
 
