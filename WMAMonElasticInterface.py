@@ -4,8 +4,6 @@ import json
 import time
 import logging
 
-from logging.handlers import RotatingFileHandler
-
 from elasticsearch import Elasticsearch
 from elasticsearch import helpers
 
@@ -59,13 +57,11 @@ class WMAMonElasticInterface(object):
     def __init__(self,
                  doc_type='agent_info',
                  index_name='wmamon',
-                 log_dir=None,
-                 log_level=logging.INFO,
                  recreate=False,
                  hosts=None):
         self.doc_type = doc_type
         self.index_name = None
-        self.logger = self.set_up_logger(log_dir, log_level=log_level)
+        self.logger = logging.getLogger(__name__)
 
         self.es_handle = Elasticsearch(hosts=hosts)
         if not self.check_connection():
@@ -84,22 +80,6 @@ class WMAMonElasticInterface(object):
             self.connected = False
             return False
 
-    def set_up_logger(self, log_dir, log_level=logging.DEBUG):
-        if not log_dir:
-            log_dir = os.path.dirname(__file__)
-        if not os.path.isdir(log_dir):
-            os.system('mkdir -p %s' % log_dir)
-
-        log_file = os.path.join(log_dir, 'WMA_monitoring.log')
-        logger = logging.getLogger('WMA_monitoring')
-        logger.setLevel(log_level)
-        filehandler = RotatingFileHandler(log_file, maxBytes=100000)
-        filehandler.setFormatter(
-            logging.Formatter('%(asctime)s : %(name)s:%(levelname)s - %(message)s'))
-        logger.addHandler(filehandler)
-
-        return logger
-
     def make_index(self, name, recreate=False, mappings=None):
         """Create the index and set mappings and settings"""
         if self.index_name is None or recreate:
@@ -110,7 +90,7 @@ class WMAMonElasticInterface(object):
                                                 body=mappings, ## FIXME: What happens with 'None'?
                                                 ignore=400)
             if res.get("status") != 400:
-                self.logger.debug("Created index %s" % (self.index_name))
+                self.logger.info("Created index %s" % (self.index_name))
             elif res['error']['root_cause'][0]['reason'] == 'already exists':
                 self.logger.debug("Using existing index %s" % (self.index_name))
             else:
@@ -138,7 +118,7 @@ class WMAMonElasticInterface(object):
             except IndexError:
                 self.logger.error(repr(res))
         else:
-            self.logger.info("Injected %d docs to %s in %.1f seconds" % (res[0], self.index_name, elapsed))
+            self.logger.warning("Injected %d docs to %s in %.1f seconds" % (res[0], self.index_name, elapsed))
 
 
         return res
@@ -146,7 +126,9 @@ class WMAMonElasticInterface(object):
     def bulk_inject_from_list_checked(self, docs):
         checked_docs = [d for d in docs if not self.check_if_exists(d['timestamp'], d['agent_url'])]
         self.logger.debug("Found %d new docs" % len(checked_docs))
-        if not len(checked_docs): return None
+        if not len(checked_docs):
+            self.logger.warning("Found no new docs")
+            return None
         return self.bulk_inject_from_list(checked_docs)
 
     def inject_single(self, doc):
@@ -159,7 +141,7 @@ class WMAMonElasticInterface(object):
             except IndexError:
                 self.logger.error(repr(res))
         else:
-            self.logger.info("Injected one doc to %s" % (self.index_name))
+            self.logger.warning("Injected one doc to %s" % (self.index_name))
         return res
 
     def inject_single_checked(self, doc):
@@ -182,7 +164,7 @@ class WMAMonElasticInterface(object):
                 }
         try:
             res = self.es_handle.search(body=json.dumps(query), index=self.index_name, timeout='5s')
-        except ConnectionTimeout as e:
-            self.logger.error(repr(e))
+        except Exception, msg:
+            self.logger.error('Error searching for existing docs: %s' % str(msg))
         return res['hits']['total'] > 0
 
