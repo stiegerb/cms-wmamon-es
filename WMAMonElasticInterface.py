@@ -86,15 +86,16 @@ class WMAMonElasticInterface(object):
             self.index_name = name
 
             # create the index
-            res = self.es_handle.indices.create(index=self.index_name,
-                                                body=mappings, ## FIXME: What happens with 'None'?
-                                                ignore=400)
-            if res.get("status") != 400:
-                self.logger.info("Created index %s" % (self.index_name))
-            elif res['error']['root_cause'][0]['reason'] == 'already exists':
-                self.logger.debug("Using existing index %s" % (self.index_name))
-            else:
-                self.logger.error("Error when creating index: %s" % str(res['error']))
+            try:
+                res = self.es_handle.indices.create(index=self.index_name,
+                                                    body=mappings, ## FIXME: What happens with 'None'?
+                                                    ignore=400)
+                if res.get("status") != 400:
+                    self.logger.info("Created index %s" % (self.index_name))
+                elif res['error']['root_cause'][0]['reason'] == 'already exists':
+                    self.logger.debug("Using existing index %s" % (self.index_name))
+            except Exception, msg:
+                self.logger.error("Failed to create index: %s" % str(msg))
 
         return self.index_name
 

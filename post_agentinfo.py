@@ -8,11 +8,7 @@ from logging.handlers import RotatingFileHandler
 from argparse import ArgumentParser
 from WMAMonElasticInterface import WMAMonElasticInterface
 
-CERT_FILE='/home/stiegerb/.globus/usercert.pem'
-KEY_FILE='/home/stiegerb/.globus/plainkey.pem'
-# KEY_FILE='/home/stiegerb/.globus/userkey.pem'
-
-def load_data_local(filename='agentinfo4.json'):
+def load_data_local(filename='agentinfo.json'):
     try:
         with open(filename, 'r') as ifile:
             return json.load(ifile)
@@ -20,11 +16,15 @@ def load_data_local(filename='agentinfo4.json'):
         logging.error('Error loading local file: %s' % str(msg))
         return None
 
-def load_data_from_cmsweb():
+def load_data_from_cmsweb(cert_file, key_file):
     from httplib import HTTPSConnection
-    con = HTTPSConnection("cmsweb.cern.ch", cert_file=CERT_FILE, key_file=KEY_FILE)
+    con = HTTPSConnection("cmsweb.cern.ch", cert_file=cert_file, key_file=key_file)
     urn = "/couchdb/wmstats/_design/WMStatsErl/_view/agentInfo"
-    headers = {"Content-type": "application/json", "Accept": "application/json"}
+    headers = {
+                "Content-type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "agentInfoCollector"
+                }
 
     try:
         con.request("GET", urn, headers=headers)
@@ -101,7 +101,7 @@ def main(args):
     if args.local_file:
         raw_data = load_data_local(args.local_file)
     else:
-        raw_data = load_data_from_cmsweb()
+        raw_data = load_data_from_cmsweb(args.cert_file, args.key_file)
 
     processed_data = process_data(raw_data)
     if not processed_data: return -1
@@ -130,13 +130,19 @@ if __name__ == '__main__':
                         help="Recreate the index")
     parser.add_argument("-i", "--index_prefix", default="wmamon-dummy",
                         type=str, dest="index_prefix",
-                        help="Index prefix to use [default: %(default)s")
+                        help="Index prefix to use [default: %(default)s]")
     parser.add_argument("--log_dir", default='log/',
                         type=str, dest="log_dir",
-                        help="Directory for logging information [default: %(default)s")
+                        help="Directory for logging information [default: %(default)s]")
     parser.add_argument("--log_level", default='WARNING',
                         type=str, dest="log_level",
-                        help="Log level (CRITICAL/ERROR/WARNING/INFO/DEBUG) [default: %(default)s")
+                        help="Log level (CRITICAL/ERROR/WARNING/INFO/DEBUG) [default: %(default)s]")
+    parser.add_argument("--cert_file", default=os.getenv('X509_USER_PROXY'),
+                        type=str, dest="cert_file",
+                        help="Client certificate file [default: %(default)s]")
+    parser.add_argument("--key_file", default=os.getenv('X509_USER_PROXY'),
+                        type=str, dest="key_file",
+                        help="Certificate key file [default: %(default)s]")
     args = parser.parse_args()
     set_up_logging(args)
 
