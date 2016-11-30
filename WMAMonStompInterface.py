@@ -2,12 +2,12 @@
 """WMAgent Monitoring notification producer for CERN AMQ
 Based on GNI notification producer
 https://gitlab.cern.ch/it-monitoring/gni-producer/raw/master/gniproducer/notification_producer.py
+
+Note: gitlab.cern.ch link is down
 """
 import json
 import logging
-import socket
 import stomp
-import sys
 import time
 import uuid
 
@@ -16,6 +16,8 @@ class StompyListener(object):
     """
     Auxiliar listener class to fetch all possible states in the Stomp
     connection.
+
+    FIXME: Fixed 'on_send', but others are probably not correct as well
     """
     def on_connecting(self, host_and_port):
         print('on_connecting %s %s' % host_and_port)
@@ -29,8 +31,8 @@ class StompyListener(object):
     def on_heartbeat(self):
         print('on_heartbeat')
 
-    def on_send(self, headers, body):
-        print('on_send HEADERS: %s, BODY: %s' % (headers, body))
+    def on_send(self, frame):
+        print('on_send HEADERS: %s, BODY: %s' % (str(frame.headers), frame.body))
 
     def on_connected(self, headers, body):
         print('on_connected %s %s' % (headers, body))
@@ -86,13 +88,10 @@ class WMAMonStompInterface(object):
         Stomp broker.
         """
 
-        conn = stomp.Connection(host_and_ports=self._host_and_ports,
-                                user=self._username,
-                                passcode=self._password,
-                                )
+        conn = stomp.Connection(host_and_ports=self._host_and_ports)
         conn.set_listener('StompyListener', StompyListener())
         conn.start()
-        conn.connect(wait=True)
+        conn.connect(username=self._username, passcode=self._password, wait=True)
 
         # Send all the notifications together
         while len(self.notifications) > 0:
@@ -174,7 +173,7 @@ class WMAMonStompInterface(object):
         # Add mandatory fields
         headers = {
                    'm_type': 'wmagent_info',
-                   'm_version': '0.1',
+                   'm_version': '1.1',
                    'm_producer': producer,
                    'm_submitter_environment': submitter_environment,
                    'm_submitter_hostgroup': submitter_hostgroup,

@@ -3,10 +3,12 @@ import sys
 import os
 import json
 import logging
+import socket
 
 from logging.handlers import RotatingFileHandler
 from argparse import ArgumentParser
 from WMAMonElasticInterface import WMAMonElasticInterface
+from WMAMonStompInterface import WMAMonStompInterface
 
 CERT_FILE='/home/stiegerb/.globus/usercert.pem'
 KEY_FILE='/home/stiegerb/.globus/plainkey.pem'
@@ -106,18 +108,40 @@ def main(args):
     processed_data = process_data(raw_data)
     if not processed_data: return -1
 
-    es_interface = WMAMonElasticInterface(hosts=['localhost:9200'],
-                                          index_name='wmamon-dummy',
-                                          recreate=args.recreate_index)
-    if not es_interface.connected: return -2
+    ###################################
+    #### Elastic Interface
+    # es_interface = WMAMonElasticInterface(hosts=['localhost:9200'],
+    #                                       index_name='wmamon-dummy',
+    #                                       recreate=args.recreate_index)
+    # if not es_interface.connected: return -2
 
-    processed_data = [d for d in processed_data if check_timestamp_in_cache(d)]
+    # processed_data = [d for d in processed_data if check_timestamp_in_cache(d)]
 
-    # res = es_interface.bulk_inject_from_list_checked(processed_data)
-    res = es_interface.bulk_inject_from_list(processed_data)
+    # # res = es_interface.bulk_inject_from_list_checked(processed_data)
+    # res = es_interface.bulk_inject_from_list(processed_data)
 
-    if res[0] == len(processed_data):
-        update_cache(processed_data)
+    # if res[0] == len(processed_data):
+    #     update_cache(processed_data)
+
+    ###################################
+    #### Stomp (CERN AMQ) Interface
+    username = open('username', 'r').read().strip()
+    password = open('password', 'r').read().strip()
+    stomp_interface = WMAMonStompInterface(username=username,
+                                           password=password,
+                                           host_and_ports=[('agileinf-mb.cern.ch', 61213)])
+    for doc in processed_data:
+        id_ = doc.pop("_id", None) # FIXME: This doesn't make much sense
+        note = stomp_interface.generate_notification_v2(payload=doc,
+                                                        metric_id=id_,
+                                                        metric_name="wmamon", # FIXME ?
+                                                        entity="wmamon",
+                                                        m_producer='WMAMonStompInterface',
+                                                        m_submitter_environment='wmamon', # FIXME ?
+                                                        m_submitter_host=socket.gethostname(),
+                                                        dest='/topic/cms.jobmon.wmagent')
+
+    stomp_interface.produce()
 
     return 0
 
