@@ -89,8 +89,12 @@ class WMAMonStompInterface(object):
 
         conn = stomp.Connection(host_and_ports=self._host_and_ports)
         conn.set_listener('StompyListener', StompyListener())
-        conn.start()
-        conn.connect(username=self._username, passcode=self._password, wait=True)
+        try:
+            conn.start()
+            conn.connect(username=self._username, passcode=self._password, wait=True)
+        except Exception, msg:
+            self._logger.error("Connection to %s failed %s" % (repr(self._host_and_ports), str(msg)))
+            return []
 
         successfully_sent = []
         # Send all the notifications together
@@ -103,7 +107,7 @@ class WMAMonStompInterface(object):
                           headers=notification,
                           body=json.dumps(body),
                           ack='auto')
-                self._logger.warning('Notification %s sent' % str(notification))
+                self._logger.debug('Notification %s sent' % str(notification))
                 successfully_sent.append(body)
             except Exception, msg:
                 self._logger.error('Notification: %s not send, error: %s' %
@@ -112,6 +116,7 @@ class WMAMonStompInterface(object):
         if conn.is_connected():
             conn.disconnect()
 
+        self._logger.warning('Sent %d docs to %s' % (len(successfully_sent), repr(self._host_and_ports)))
         return successfully_sent
 
     def make_notification(self, payload, id_,

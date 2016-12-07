@@ -10,11 +10,7 @@ from argparse import ArgumentParser
 from WMAMonElasticInterface import WMAMonElasticInterface
 from WMAMonStompInterface import WMAMonStompInterface
 
-CERT_FILE='/home/stiegerb/.globus/usercert.pem'
-KEY_FILE='/home/stiegerb/.globus/plainkey.pem'
-# KEY_FILE='/home/stiegerb/.globus/userkey.pem'
-
-def load_data_local(filename='agentinfo4.json'):
+def load_data_local(filename='agentinfo.json'):
     try:
         with open(filename, 'r') as ifile:
             return json.load(ifile)
@@ -22,11 +18,15 @@ def load_data_local(filename='agentinfo4.json'):
         logging.error('Error loading local file: %s' % str(msg))
         return None
 
-def load_data_from_cmsweb():
+def load_data_from_cmsweb(cert_file, key_file):
     from httplib import HTTPSConnection
-    con = HTTPSConnection("cmsweb.cern.ch", cert_file=CERT_FILE, key_file=KEY_FILE)
+    con = HTTPSConnection("cmsweb.cern.ch", cert_file=cert_file, key_file=key_file)
     urn = "/couchdb/wmstats/_design/WMStatsErl/_view/agentInfo"
-    headers = {"Content-type": "application/json", "Accept": "application/json"}
+    headers = {
+                "Content-type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "agentInfoCollector"
+                }
 
     try:
         con.request("GET", urn, headers=headers)
@@ -108,13 +108,17 @@ def submit_to_elastic(data):
     # res = es_interface.bulk_inject_from_list(data)
 
 def submit_to_cern_amq(data):
+    new_data = [d for d in data if check_timestamp_in_cache(d)]
+    if not len(new_data):
+        logging.warning("No new documents found")
+        return
     username = open('username', 'r').read().strip()
     password = open('password', 'r').read().strip()
     stomp_interface = WMAMonStompInterface(username=username,
                                            password=password,
                                            host_and_ports=[('dashb-test-mb.cern.ch', 61113)])
 
-    for doc in data:
+    for doc in new_data:
         id_ = doc.pop("_id", None)
         stomp_interface.make_notification(payload=doc, id_=id_)
 
@@ -130,7 +134,6 @@ def main(args):
 
     processed_data = process_data(raw_data)
     if not processed_data: return -1
-    processed_data = [d for d in processed_data if check_timestamp_in_cache(d)]
 
     submit_to_elastic(processed_data)
     submit_to_cern_amq(processed_data)
@@ -146,13 +149,19 @@ if __name__ == '__main__':
                         help="Recreate the index")
     parser.add_argument("-i", "--index_prefix", default="wmamon-dummy",
                         type=str, dest="index_prefix",
-                        help="Index prefix to use [default: %(default)s")
+                        help="Index prefix to use [default: %(default)s]")
     parser.add_argument("--log_dir", default='log/',
                         type=str, dest="log_dir",
-                        help="Directory for logging information [default: %(default)s")
+                        help="Directory for logging information [default: %(default)s]")
     parser.add_argument("--log_level", default='WARNING',
                         type=str, dest="log_level",
-                        help="Log level (CRITICAL/ERROR/WARNING/INFO/DEBUG) [default: %(default)s")
+                        help="Log level (CRITICAL/ERROR/WARNING/INFO/DEBUG) [default: %(default)s]")
+    parser.add_argument("--cert_file", default=os.getenv('X509_USER_PROXY'),
+                        type=str, dest="cert_file",
+                        help="Client certificate file [default: %(default)s]")
+    parser.add_argument("--key_file", default=os.getenv('X509_USER_PROXY'),
+                        type=str, dest="key_file",
+                        help="Certificate key file [default: %(default)s]")
     args = parser.parse_args()
     set_up_logging(args)
 
