@@ -98,6 +98,29 @@ def update_cache(docs):
         logging.debug("Updating cache file with %d entries" % len(docs))
         json.dump(_doc_cache, cfile, indent=2)
 
+def submit_to_elastic(data):
+    es_interface = WMAMonElasticInterface(hosts=['localhost:9200'],
+                                          index_name='wmamon-dummy',
+                                          recreate=args.recreate_index)
+    if not es_interface.connected: return -2
+
+    res = es_interface.bulk_inject_from_list_checked(data)
+    # res = es_interface.bulk_inject_from_list(data)
+
+def submit_to_cern_amq(data):
+    username = open('username', 'r').read().strip()
+    password = open('password', 'r').read().strip()
+    stomp_interface = WMAMonStompInterface(username=username,
+                                           password=password,
+                                           host_and_ports=[('dashb-test-mb.cern.ch', 61113)])
+
+    for doc in data:
+        id_ = doc.pop("_id", None)
+        stomp_interface.make_notification(payload=doc, id_=id_)
+
+    sent_data = stomp_interface.produce()
+    update_cache([b['payload'] for b in sent_data])
+
 
 def main(args):
     if args.local_file:
@@ -107,41 +130,10 @@ def main(args):
 
     processed_data = process_data(raw_data)
     if not processed_data: return -1
+    processed_data = [d for d in processed_data if check_timestamp_in_cache(d)]
 
-    ###################################
-    #### Elastic Interface
-    # es_interface = WMAMonElasticInterface(hosts=['localhost:9200'],
-    #                                       index_name='wmamon-dummy',
-    #                                       recreate=args.recreate_index)
-    # if not es_interface.connected: return -2
-
-    # processed_data = [d for d in processed_data if check_timestamp_in_cache(d)]
-
-    # # res = es_interface.bulk_inject_from_list_checked(processed_data)
-    # res = es_interface.bulk_inject_from_list(processed_data)
-
-    # if res[0] == len(processed_data):
-    #     update_cache(processed_data)
-
-    ###################################
-    #### Stomp (CERN AMQ) Interface
-    username = open('username', 'r').read().strip()
-    password = open('password', 'r').read().strip()
-    stomp_interface = WMAMonStompInterface(username=username,
-                                           password=password,
-                                           host_and_ports=[('agileinf-mb.cern.ch', 61213)])
-    for doc in processed_data:
-        id_ = doc.pop("_id", None) # FIXME: This doesn't make much sense
-        note = stomp_interface.generate_notification_v2(payload=doc,
-                                                        metric_id=id_,
-                                                        metric_name="wmamon", # FIXME ?
-                                                        entity="wmamon",
-                                                        m_producer='WMAMonStompInterface',
-                                                        m_submitter_environment='wmamon', # FIXME ?
-                                                        m_submitter_host=socket.gethostname(),
-                                                        dest='/topic/cms.jobmon.wmagent')
-
-    stomp_interface.produce()
+    submit_to_elastic(processed_data)
+    submit_to_cern_amq(processed_data)
 
     return 0
 
