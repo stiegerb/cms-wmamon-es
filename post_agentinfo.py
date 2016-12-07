@@ -7,8 +7,7 @@ import socket
 
 from logging.handlers import RotatingFileHandler
 from argparse import ArgumentParser
-from WMAMonElasticInterface import WMAMonElasticInterface
-from WMAMonStompInterface import WMAMonStompInterface
+
 
 def load_data_local(filename='agentinfo.json'):
     try:
@@ -99,6 +98,7 @@ def update_cache(docs):
         json.dump(_doc_cache, cfile, indent=2)
 
 def submit_to_elastic(data):
+    from WMAMonElasticInterface import WMAMonElasticInterface
     es_interface = WMAMonElasticInterface(hosts=['localhost:9200'],
                                           index_name='wmamon-dummy',
                                           recreate=args.recreate_index)
@@ -108,6 +108,13 @@ def submit_to_elastic(data):
     # res = es_interface.bulk_inject_from_list(data)
 
 def submit_to_cern_amq(data):
+    try:
+        import stomp
+    except ImportError as e:
+        logging.warning("stomp.py not found, skipping submission to CERN/AMQ")
+        return
+    from WMAMonStompInterface import WMAMonStompInterface
+
     new_data = [d for d in data if check_timestamp_in_cache(d)]
     if not len(new_data):
         logging.warning("No new documents found")
@@ -130,7 +137,7 @@ def main(args):
     if args.local_file:
         raw_data = load_data_local(args.local_file)
     else:
-        raw_data = load_data_from_cmsweb()
+        raw_data = load_data_from_cmsweb(args.cert_file, args.key_file)
 
     processed_data = process_data(raw_data)
     if not processed_data: return -1
