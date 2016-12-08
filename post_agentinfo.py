@@ -107,7 +107,7 @@ def submit_to_elastic(data):
     res = es_interface.bulk_inject_from_list_checked(data)
     # res = es_interface.bulk_inject_from_list(data)
 
-def submit_to_cern_amq(data):
+def submit_to_cern_amq(data, args):
     try:
         import stomp
     except ImportError as e:
@@ -119,8 +119,12 @@ def submit_to_cern_amq(data):
     if not len(new_data):
         logging.warning("No new documents found")
         return
-    username = open('username', 'r').read().strip()
-    password = open('password', 'r').read().strip()
+    try:
+        username = open(args.username, 'r').read().strip()
+        password = open(args.password, 'r').read().strip()
+    except IOError:
+        username = args.username
+        password = args.password
     stomp_interface = WMAMonStompInterface(username=username,
                                            password=password,
                                            host_and_ports=[('dashb-test-mb.cern.ch', 61113)])
@@ -143,7 +147,7 @@ def main(args):
     if not processed_data: return -1
 
     submit_to_elastic(processed_data)
-    submit_to_cern_amq(processed_data)
+    submit_to_cern_amq(processed_data, args=args)
 
     return 0
 
@@ -169,6 +173,12 @@ if __name__ == '__main__':
     parser.add_argument("--key_file", default=os.getenv('X509_USER_PROXY'),
                         type=str, dest="key_file",
                         help="Certificate key file [default: %(default)s]")
+    parser.add_argument("--username", default='username',
+                        type=str, dest="username",
+                        help="Plaintext username or file containing it [default: %(default)s]")
+    parser.add_argument("--password", default='password',
+                        type=str, dest="password",
+                        help="Plaintext password or file containing it [default: %(default)s]")
     args = parser.parse_args()
     set_up_logging(args)
 

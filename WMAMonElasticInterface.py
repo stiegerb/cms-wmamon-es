@@ -106,14 +106,17 @@ class WMAMonElasticInterface(object):
 
         start_time = time.time()
 
-        res = helpers.bulk(self.es_handle, actions, chunk_size=1000,
-                           raise_on_error=False,
-                           raise_on_exception=False)
+        try:
+            res = helpers.bulk(self.es_handle, actions, chunk_size=1000,
+                               raise_on_error=False,
+                               raise_on_exception=False)
+        except Exception, msg:
+            self.logger.error("Failed to inject: %s" % str(msg))
 
         elapsed = time.time()-start_time
 
         if len(docs) - res[0] > 0:
-            self.logger.error("Failed to inject %d docs, printing first error message" % (len(docs) - res[0]))
+            self.logger.error("Failed to inject %d of %d docs, printing first error message" % (len(docs)-res[0], len(docs)))
             try:
                 self.logger.error(res[1][0].get('index').get('error'))
             except IndexError:
