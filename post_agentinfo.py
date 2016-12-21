@@ -113,7 +113,7 @@ def submit_to_cern_amq(data, args):
     except ImportError as e:
         logging.warning("stomp.py not found, skipping submission to CERN/AMQ")
         return
-    from WMAMonStompInterface import WMAMonStompInterface
+    from StompAMQ import StompAMQ
 
     new_data = [d for d in data if check_timestamp_in_cache(d)]
     if not len(new_data):
@@ -125,15 +125,17 @@ def submit_to_cern_amq(data, args):
     except IOError:
         username = args.username
         password = args.password
-    stomp_interface = WMAMonStompInterface(username=username,
-                                           password=password,
-                                           host_and_ports=[('dashb-test-mb.cern.ch', 61113)])
+    stomp_interface = StompAMQ(username=username,
+                               password=password,
+                               host_and_ports=[('dashb-test-mb.cern.ch', 61113)])
 
+    list_data = []
     for doc in new_data:
         id_ = doc.pop("_id", None)
-        stomp_interface.make_notification(payload=doc, id_=id_)
+        list_data.append(stomp_interface.make_notification(payload=doc, id_=id_))
 
-    sent_data = stomp_interface.produce()
+    sent_data = stomp_interface.send(list_data)
+
     update_cache([b['payload'] for b in sent_data])
 
 
