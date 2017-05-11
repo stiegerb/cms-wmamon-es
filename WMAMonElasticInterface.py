@@ -119,7 +119,7 @@ class WMAMonElasticInterface(object):
             self.logger.error("Failed to inject %d of %d docs, printing first error message" % (len(docs)-res[0], len(docs)))
             try:
                 self.logger.error(res[1][0].get('index').get('error'))
-            except IndexError:
+            except (IndexError, AttributeError):
                 self.logger.error(repr(res))
         else:
             self.logger.warning("Injected %d docs to %s in %.1f seconds" % (res[0], self.index_name, elapsed))
