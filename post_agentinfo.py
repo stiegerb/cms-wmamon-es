@@ -35,6 +35,14 @@ def load_data_from_cmsweb(cert_file, key_file):
         return None
 
 def process_data(raw_data):
+    # Ensure we always have 'New', 'Idle', 'Running' fields in 
+    # WMBS_INFO.activeRunJobByStatus
+    for doc in raw_data['rows']:
+        try:
+            for status in ["New", "Idle", "Running"]:
+                doc["value"]["WMBS_INFO"].setdefault("activeRunJobByStatus", {}).setdefault(status, 0)
+        except KeyError: pass # Special agents don't have 'WMBS_INFO' in the first place
+
     try:
         return [r['value'] for r in raw_data['rows']]
     except Exception, msg:
@@ -127,7 +135,7 @@ def submit_to_cern_amq(data, args):
         password = args.password
     stomp_interface = StompAMQ(username=username,
                                password=password,
-                               host_and_ports=[('dashb-test-mb.cern.ch', 61113)])
+                               host_and_ports=[('dashb-mb.cern.ch', 61113)])
 
     list_data = []
     for doc in new_data:
