@@ -138,7 +138,8 @@ class StompAMQ(object):
             return None
 
 
-    def make_notification(self, payload, id_, producer=None):
+    def make_notification(self, payload, id_, producer=None,
+                          type_='cms_wmagent_info'):
         """
         Generate a notification with the specified data
 
@@ -156,7 +157,7 @@ class StompAMQ(object):
 
         # Add headers
         headers = {
-                   'type': 'cms_wmagent_info',
+                   'type': type_,
                    'version': self._version,
                    'producer': producer
         }
