@@ -37,14 +37,17 @@ def load_data_from_cmsweb(cert_file, key_file):
 def process_site_information(raw_data):
     site_docs = []
     prio_docs = []
+    work_docs = []
     for doc in raw_data['rows']:
         try:
-            sitePendCountByPrio = doc['value']['WMBS_INFO'].pop('sitePendCountByPrio')
-            thresholds          = doc['value']['WMBS_INFO'].pop('thresholds')
-            thresholdsGQ2LQ     = doc['value']['WMBS_INFO'].pop('thresholdsGQ2LQ')
-            possibleJobsPerSite = doc['value']['LocalWQ_INFO'].pop('possibleJobsPerSite')
-            uniqueJobsPerSite   = doc['value']['LocalWQ_INFO'].pop('uniqueJobsPerSite')
+            sitePendCountByPrio = doc['value']['WMBS_INFO'].pop('sitePendCountByPrio', [])
+            thresholds          = doc['value']['WMBS_INFO'].pop('thresholds', [])
+            thresholdsGQ2LQ     = doc['value']['WMBS_INFO'].pop('thresholdsGQ2LQ', [])
+            possibleJobsPerSite = doc['value']['LocalWQ_INFO'].pop('possibleJobsPerSite', [])
+            uniqueJobsPerSite   = doc['value']['LocalWQ_INFO'].pop('uniqueJobsPerSite', [])
+            workByStatus        = doc['value']['LocalWQ_INFO'].pop('workByStatus', [])
         except (KeyError) as e:
+            logging.debug('Missing key in %s: %s' % (doc['value']['agent_url'], str(e)))
             continue
 
         sites = sorted(list(set(thresholds.keys() + 
@@ -85,7 +88,17 @@ def process_site_information(raw_data):
 
             site_docs.append(site_doc)
 
-    return raw_data, site_docs, prio_docs
+        for status_info in workByStatus:
+            work_doc = {}
+            work_doc['type'] = "work_info"
+            work_doc['agent_url'] = doc['value']['agent_url']
+            work_doc['timestamp'] = doc['value']['timestamp']
+            work_doc['status'] = status_info['status']
+            work_doc['count']  = status_info['count']
+            work_doc['sum']    = status_info['sum']
+            work_docs.append(work_doc)
+
+    return raw_data, site_docs, prio_docs, work_docs
 
 def process_data(raw_data):
     # Ensure we always have 'New', 'Idle', 'Running' fields in 
@@ -97,14 +110,14 @@ def process_data(raw_data):
         except KeyError: pass # Special agents don't have 'WMBS_INFO' in the first place
 
     ## Transform the site-by-site information into separate documents
-    raw_data, site_docs, prio_docs = process_site_information(raw_data)
+    raw_data, site_docs, prio_docs, work_docs = process_site_information(raw_data)
 
     ## Add a version number:
     for doc in raw_data['rows']:
         doc['value']['version'] = '0.2'
 
     try:
-        return [r['value'] for r in raw_data['rows']], site_docs, prio_docs
+        return [r['value'] for r in raw_data['rows']], site_docs, prio_docs, work_docs
     except Exception, msg:
         logging.error('Error processing data: %s' % str(msg))
         return None
@@ -218,17 +231,21 @@ def main(args):
     else:
         raw_data = load_data_from_cmsweb(args.cert_file, args.key_file)
 
-    processed_data, site_data, prio_data = process_data(raw_data)
+    processed_data, site_data, prio_data, work_data = process_data(raw_data)
     if not processed_data: return -1
 
+    # Submit to local UNL ES instance
     submit_to_elastic(processed_data, index_name='wmamon-dummy')
     submit_to_elastic(site_data, index_name='wmamon-dummy-sites', doc_type='site_info')
     submit_to_elastic(prio_data, index_name='wmamon-dummy-priorities', doc_type='priority_info')
+    submit_to_elastic(work_data, index_name='wmamon-dummy-work', doc_type='work_info')
 
+    # Submit to CERN MONIT
     new_data = [d for d in processed_data if check_timestamp_in_cache(d)]
     sent_data = submit_to_cern_amq(new_data, args=args)
     submit_to_cern_amq(site_data, args=args, type_='cms_wmagent_info_sites')
     submit_to_cern_amq(prio_data, args=args, type_='cms_wmagent_info_priorities')
+    submit_to_cern_amq(work_data, args=args, type_='cms_wmagent_info_work')
     update_cache([b['payload'] for b in sent_data])
 
     return 0
