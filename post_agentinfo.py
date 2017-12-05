@@ -197,13 +197,10 @@ def submit_to_cern_amq(data, args, type_='cms_wmagent_info'):
         import stomp
     except ImportError as e:
         logging.warning("stomp.py not found, skipping submission to CERN/AMQ")
-        return
+        return []
     from StompAMQ import StompAMQ
     StompAMQ._version = '0.1.2'
 
-    if not len(data):
-        logging.warning("No new documents found")
-        return
     try:
         username = open(args.username, 'r').read().strip()
         password = open(args.password, 'r').read().strip()
@@ -242,11 +239,14 @@ def main(args):
 
     # Submit to CERN MONIT
     new_data = [d for d in processed_data if check_timestamp_in_cache(d)]
+    if not new_data:
+        logging.warning("No new documents found")
+        return 0
     sent_data = submit_to_cern_amq(new_data, args=args)
+    update_cache([b['payload'] for b in sent_data])
     submit_to_cern_amq(site_data, args=args, type_='cms_wmagent_info_sites')
     submit_to_cern_amq(prio_data, args=args, type_='cms_wmagent_info_priorities')
     submit_to_cern_amq(work_data, args=args, type_='cms_wmagent_info_work')
-    update_cache([b['payload'] for b in sent_data])
 
     return 0
 
