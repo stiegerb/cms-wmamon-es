@@ -3,17 +3,17 @@ import sys
 import os
 import json
 import logging
-import socket
 
 from logging.handlers import RotatingFileHandler
 from argparse import ArgumentParser
+from pprint import pformat
 
 
 def load_data_local(filename='agentinfo.json'):
     try:
         with open(filename, 'r') as ifile:
             return json.load(ifile)
-    except Exception, msg:
+    except Exception as msg:
         logging.error('Error loading local file: %s' % str(msg))
         return None
 
@@ -30,14 +30,29 @@ def load_data_from_cmsweb(cert_file, key_file):
     try:
         con.request("GET", urn, headers=headers)
         return json.load(con.getresponse())
-    except Exception, msg:
+    except Exception as msg:
         logging.error('Error connecting to CMSWeb: %s' % str(msg))
         return None
+
+def data_fixup(raw_data):
+    """Remove some unwanted key and add some possibly missing keys"""
+    for doc in raw_data['rows']:
+        ## Add a version number for this script
+        doc['value']['version'] = '0.2'
+
+        for keyname in ['_deleted_conflicts', '_id', '_rev', 'acdc']:
+            doc['value'].pop(keyname, None)
+        try:
+            # Ensure we always have 'New', 'Idle', 'Running' fields in
+            # WMBS_INFO.activeRunJobByStatus
+            for status in ["New", "Idle", "Running"]:
+                doc["value"]["WMBS_INFO"].setdefault("activeRunJobByStatus", {}).setdefault(status, 0)
+        except KeyError:
+            pass  # only agents have the WMBS_INFO key, not central services
 
 def process_site_information(raw_data):
     site_docs = []
     prio_docs = []
-    work_docs = []
     for doc in raw_data['rows']:
         try:
             sitePendCountByPrio = doc['value']['WMBS_INFO'].pop('sitePendCountByPrio', [])
@@ -45,48 +60,60 @@ def process_site_information(raw_data):
             thresholdsGQ2LQ     = doc['value']['WMBS_INFO'].pop('thresholdsGQ2LQ', [])
             possibleJobsPerSite = doc['value']['LocalWQ_INFO'].pop('possibleJobsPerSite', [])
             uniqueJobsPerSite   = doc['value']['LocalWQ_INFO'].pop('uniqueJobsPerSite', [])
-            workByStatus        = doc['value']['LocalWQ_INFO'].pop('workByStatus', [])
         except (KeyError) as e:
             logging.debug('Missing key in %s: %s' % (doc['value']['agent_url'], str(e)))
             continue
 
-        sites = sorted(list(set(thresholds.keys() + 
-                                thresholdsGQ2LQ.keys() + 
-                                sitePendCountByPrio.keys())))
-
-        for site in sites:
+        for site in sorted(thresholds):
             site_doc = {}
             site_doc['site_name'] = site
             site_doc['type'] = "site_info"
             site_doc['agent_url'] = doc['value']['agent_url']
             site_doc['timestamp'] = doc['value']['timestamp']
-            site_doc['WMBS_INFO'] = {}
-            if site in thresholds:
-                site_doc['WMBS_INFO']['thresholds'] = thresholds[site]
-            if site in thresholdsGQ2LQ:
-                site_doc['WMBS_INFO']['thresholdsGQ2LQ'] = thresholdsGQ2LQ[site]
+
+            site_doc['thresholds'] = thresholds[site]
+            site_doc['state'] = site_doc['thresholds'].pop('state')
+            site_doc['thresholdsGQ2LQ'] = thresholdsGQ2LQ.get(site, 0)
             if site in sitePendCountByPrio:
-                priocount = []
-                for prio, count in sitePendCountByPrio[site].iteritems():
+                for prio, jobs in sitePendCountByPrio[site].iteritems():
                     prio_doc = {}
                     prio_doc['site_name'] = site
                     prio_doc['type'] = "priority_info"
                     prio_doc['agent_url'] = doc['value']['agent_url']
                     prio_doc['timestamp'] = doc['value']['timestamp']
                     prio_doc['priority'] = prio
-                    prio_doc['count'] = count
+                    prio_doc['count'] = jobs
                     prio_docs.append(prio_doc)
 
             site_doc['LocalWQ_INFO'] = {}
             for status in possibleJobsPerSite.keys():
+                # very inefficient, it would be better if the agent was providing a nested
+                # dictionary key'ed by the site name instead of a list of dicts
                 lwq_info = {}
-                if site in possibleJobsPerSite[status]:
-                    lwq_info['possibleJobsPerSite'] = possibleJobsPerSite[status][site]['Jobs']
-                    lwq_info['NumElems'] = possibleJobsPerSite[status][site]['NumElems']
-                    lwq_info['uniqueJobsPerSite'] = uniqueJobsPerSite[status][site]['Jobs']
+                for item in possibleJobsPerSite[status]:
+                    if item['site_name'] == site:
+                        lwq_info['possibleJobsPerSite'] = item['Jobs']
+                        lwq_info['NumElems'] = item['NumElems']
+                for item in uniqueJobsPerSite[status]:
+                    if item['site_name'] == site:
+                        lwq_info['uniqueJobsPerSite'] = item['Jobs']
                 site_doc['LocalWQ_INFO'][status] = lwq_info
 
             site_docs.append(site_doc)
+
+    return raw_data, site_docs, prio_docs
+
+def process_work_information(raw_data):
+    work_docs = []
+    for doc in raw_data['rows']:
+        try:
+            workByStatus = doc['value']['LocalWQ_INFO'].pop('workByStatus', [])
+        except KeyError as e:
+            if doc['id'] == 'global_workqueue':
+                workByStatus = doc['value'].pop('workByStatus', [])
+            else:
+                logging.debug('Missing key in %s: %s' % (doc['value']['agent_url'], str(e)))
+                continue
 
         for status_info in workByStatus:
             work_doc = {}
@@ -98,27 +125,18 @@ def process_site_information(raw_data):
             work_doc['sum']    = status_info['sum']
             work_docs.append(work_doc)
 
-    return raw_data, site_docs, prio_docs, work_docs
+    return work_docs
 
 def process_data(raw_data):
-    # Ensure we always have 'New', 'Idle', 'Running' fields in 
-    # WMBS_INFO.activeRunJobByStatus
-    for doc in raw_data['rows']:
-        try:
-            for status in ["New", "Idle", "Running"]:
-                doc["value"]["WMBS_INFO"].setdefault("activeRunJobByStatus", {}).setdefault(status, 0)
-        except KeyError: pass # Special agents don't have 'WMBS_INFO' in the first place
-
     ## Transform the site-by-site information into separate documents
-    raw_data, site_docs, prio_docs, work_docs = process_site_information(raw_data)
+    raw_data, site_docs, prio_docs = process_site_information(raw_data)
 
-    ## Add a version number:
-    for doc in raw_data['rows']:
-        doc['value']['version'] = '0.2'
+    ## Transform the workByStatus metric into separate documents, one by status by node
+    work_docs = process_work_information(raw_data)
 
     try:
         return [r['value'] for r in raw_data['rows']], site_docs, prio_docs, work_docs
-    except Exception, msg:
+    except Exception as msg:
         logging.error('Error processing data: %s' % str(msg))
         return None
 
@@ -181,7 +199,12 @@ def update_cache(docs):
         logging.debug("Updating cache file with %d entries" % len(docs))
         json.dump(_doc_cache, cfile, indent=2)
 
-def submit_to_elastic(data, index_name='wmamon-dummy', doc_type='agent_info'):
+def submit_to_elastic(data, args, index_name='wmamon-dummy', doc_type='agent_info'):
+    if args.dry_run:
+        logging.debug("Dry-run injection to UNL ES, using index_name %s and doc_type %s", index_name, doc_type)
+        logging.debug("Data to be injected is:\n%s", pformat(data))
+        return
+
     from WMAMonElasticInterface import WMAMonElasticInterface
     es_interface = WMAMonElasticInterface(hosts=['localhost:9200'],
                                           index_name=index_name,
@@ -193,6 +216,13 @@ def submit_to_elastic(data, index_name='wmamon-dummy', doc_type='agent_info'):
     # res = es_interface.bulk_inject_from_list(data)
 
 def submit_to_cern_amq(data, args, type_='cms_wmagent_info'):
+    if args.dry_run:
+        logging.debug("Dry-run injection to MONIT IT, using type_ %s", type_)
+        logging.debug("Data to be injected is:")
+        for doc in data:
+            logging.debug("%s", pformat(doc))
+        return []
+
     try:
         import stomp
     except ImportError as e:
@@ -228,14 +258,15 @@ def main(args):
     else:
         raw_data = load_data_from_cmsweb(args.cert_file, args.key_file)
 
+    data_fixup(raw_data)
     processed_data, site_data, prio_data, work_data = process_data(raw_data)
     if not processed_data: return -1
 
     # Submit to local UNL ES instance
-    submit_to_elastic(processed_data, index_name='wmamon-dummy')
-    submit_to_elastic(site_data, index_name='wmamon-dummy-sites', doc_type='site_info')
-    submit_to_elastic(prio_data, index_name='wmamon-dummy-priorities', doc_type='priority_info')
-    submit_to_elastic(work_data, index_name='wmamon-dummy-work', doc_type='work_info')
+    submit_to_elastic(processed_data, index_name='wmamon-dummy', args=args)
+    submit_to_elastic(site_data, index_name='wmamon-dummy-sites', doc_type='site_info', args=args)
+    submit_to_elastic(prio_data, index_name='wmamon-dummy-priorities', doc_type='priority_info', args=args)
+    submit_to_elastic(work_data, index_name='wmamon-dummy-work', doc_type='work_info', args=args)
 
     # Submit to CERN MONIT
     new_data = [d for d in processed_data if check_timestamp_in_cache(d)]
@@ -247,6 +278,12 @@ def main(args):
     submit_to_cern_amq(site_data, args=args, type_='cms_wmagent_info_sites')
     submit_to_cern_amq(prio_data, args=args, type_='cms_wmagent_info_priorities')
     submit_to_cern_amq(work_data, args=args, type_='cms_wmagent_info_work')
+
+    logging.info("Summary of CERN AMQ injection:")
+    logging.info("  Documents submitted for new data: %d", len(new_data))
+    logging.info("  Documents submitted for site info: %d", len(site_data))
+    logging.info("  Documents submitted for prio info: %d", len(prio_data))
+    logging.info("  Documents submitted for work info: %d", len(work_data))
 
     return 0
 
@@ -263,7 +300,7 @@ if __name__ == '__main__':
     parser.add_argument("--log_dir", default='log/',
                         type=str, dest="log_dir",
                         help="Directory for logging information [default: %(default)s]")
-    parser.add_argument("--log_level", default='WARNING',
+    parser.add_argument("--log_level", default='DEBUG',
                         type=str, dest="log_level",
                         help="Log level (CRITICAL/ERROR/WARNING/INFO/DEBUG) [default: %(default)s]")
     parser.add_argument("--cert_file", default=os.getenv('X509_USER_PROXY'),
@@ -278,6 +315,8 @@ if __name__ == '__main__':
     parser.add_argument("--password", default='password',
                         type=str, dest="password",
                         help="Plaintext password or file containing it [default: %(default)s]")
+    parser.add_argument("--dry_run", action='store_true', default=False, dest="dry_run",
+                        help="Create all the monitoring information but don't inject anything")
     args = parser.parse_args()
     set_up_logging(args)
 
