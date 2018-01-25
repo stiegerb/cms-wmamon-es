@@ -209,7 +209,7 @@ def update_cache(docs):
 
 def submit_to_elastic(data, args, index_name='wmamon-dummy', doc_type='agent_info'):
     if args.dry_run:
-        logging.debug("Dry-run injection to UNL ES, using index_name %s and doc_type %s", index_name, doc_type)
+        logging.warning("Dry-run injection to UNL ES, using index_name %s and doc_type %s", index_name, doc_type)
         logging.debug("Data to be injected is:\n%s", pformat(data))
         return
 
@@ -225,7 +225,7 @@ def submit_to_elastic(data, args, index_name='wmamon-dummy', doc_type='agent_inf
 
 def submit_to_cern_amq(data, args, type_='cms_wmagent_info'):
     if args.dry_run:
-        logging.debug("Dry-run injection to MONIT IT, using type_ %s", type_)
+        logging.warning("Dry-run injection to MONIT IT, using type_ %s", type_)
         logging.debug("Data to be injected is:")
         for doc in data:
             logging.debug("%s", pformat(doc))
@@ -288,15 +288,15 @@ def main(args):
         return 0
     sent_data = submit_to_cern_amq(new_data, args=args)
     update_cache([b['payload'] for b in sent_data])
-    submit_to_cern_amq(site_data, args=args, type_='cms_wmagent_info_sites')
-    submit_to_cern_amq(prio_data, args=args, type_='cms_wmagent_info_priorities')
-    submit_to_cern_amq(work_data, args=args, type_='cms_wmagent_info_work')
+    site_data_sent = submit_to_cern_amq(site_data, args=args, type_='cms_wmagent_info_sites')
+    prio_data_sent = submit_to_cern_amq(prio_data, args=args, type_='cms_wmagent_info_priorities')
+    work_data_sent = submit_to_cern_amq(work_data, args=args, type_='cms_wmagent_info_work')
 
-    logging.info("Summary of CERN AMQ injection:")
-    logging.info("  Documents submitted for new data: %d", len(new_data))
-    logging.info("  Documents submitted for site info: %d", len(site_data))
-    logging.info("  Documents submitted for prio info: %d", len(prio_data))
-    logging.info("  Documents submitted for work info: %d", len(work_data))
+    logging.warning("Summary of CERN AMQ injection:")
+    logging.warning("  Documents submitted for new data: %d", len(sent_data))
+    logging.warning("  Documents submitted for site info: %d", len(site_data_sent))
+    logging.warning("  Documents submitted for prio info: %d", len(prio_data_sent))
+    logging.warning("  Documents submitted for work info: %d", len(work_data_sent))
 
     return 0
 
@@ -313,7 +313,7 @@ if __name__ == '__main__':
     parser.add_argument("--log_dir", default='log/',
                         type=str, dest="log_dir",
                         help="Directory for logging information [default: %(default)s]")
-    parser.add_argument("--log_level", default='DEBUG',
+    parser.add_argument("--log_level", default='WARNING',
                         type=str, dest="log_level",
                         help="Log level (CRITICAL/ERROR/WARNING/INFO/DEBUG) [default: %(default)s]")
     parser.add_argument("--cert_file", default=os.getenv('X509_USER_PROXY'),
