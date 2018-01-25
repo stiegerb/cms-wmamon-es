@@ -228,6 +228,10 @@ def main(args):
     else:
         raw_data = load_data_from_cmsweb(args.cert_file, args.key_file)
 
+    if not raw_data:
+        logging.error("Failed to load data; aborting.")
+        return 0
+
     processed_data, site_data, prio_data, work_data = process_data(raw_data)
     if not processed_data: return -1
 
