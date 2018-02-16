@@ -2,12 +2,39 @@
 import sys
 import os
 import json
+import time
+import socket
 import logging
 
 from logging.handlers import RotatingFileHandler
 from argparse import ArgumentParser
 from pprint import pformat
 
+def send_email_alert(recipients, subject, message):
+    if not recipients:
+        return
+    try:
+        import smtplib, getpass
+        from email.mime.text import MIMEText
+        msg = MIMEText(message)
+        msg['Subject'] = "%s - %sh: %s" % (socket.gethostname(),
+                                          time.strftime("%b %d, %H:%M"),
+                                          subject)
+
+        domain = socket.getfqdn()
+        if not 'cern.ch' in domain:
+            domain = '%s.unl.edu' % socket.gethostname()
+        msg['From'] = '%s@%s' % (getpass.getuser(), domain)
+        msg['To'] = recipients[0]
+
+        s = smtplib.SMTP('localhost')
+        s.sendmail(msg['From'], recipients, msg.as_string())
+        s.quit()
+
+    except ImportError:
+        logging.warning("Email notification failed: ImportError")
+    except Exception, e:
+        logging.warning("Email notification failed: %s" % str(e))
 
 def load_data_local(filename='agentinfo.json'):
     try:
@@ -17,9 +44,11 @@ def load_data_local(filename='agentinfo.json'):
         logging.error('Error loading local file: %s' % str(msg))
         return None
 
-def load_data_from_cmsweb(cert_file, key_file):
+def load_data_from_cmsweb(args):
     from httplib import HTTPSConnection
-    con = HTTPSConnection("cmsweb.cern.ch", cert_file=cert_file, key_file=key_file)
+    con = HTTPSConnection("cmsweb.cern.ch",
+                          cert_file=args.cert_file,
+                          key_file=args.key_file)
     urn = "/couchdb/wmstats/_design/WMStatsErl/_view/agentInfo"
     headers = {
                 "Content-type": "application/json",
@@ -31,7 +60,11 @@ def load_data_from_cmsweb(cert_file, key_file):
         con.request("GET", urn, headers=headers)
         return json.load(con.getresponse())
     except Exception as msg:
-        logging.error('Error connecting to CMSWeb: %s' % str(msg))
+        message = 'Error connecting to CMSWeb: %s' % str(msg)
+        send_email_alert(args.email_alerts,
+                         "post_agentinfo connection failure",
+                         message)
+        logging.error(message)
         return None
 
 def data_fixup(raw_data):
@@ -264,7 +297,7 @@ def main(args):
     if args.local_file:
         raw_data = load_data_local(args.local_file)
     else:
-        raw_data = load_data_from_cmsweb(args.cert_file, args.key_file)
+        raw_data = load_data_from_cmsweb(args)
 
     if not raw_data:
         logging.error("Failed to load data; aborting.")
@@ -330,6 +363,9 @@ if __name__ == '__main__':
                         help="Plaintext password or file containing it [default: %(default)s]")
     parser.add_argument("--dry_run", action='store_true', default=False, dest="dry_run",
                         help="Create all the monitoring information but don't inject anything")
+    parser.add_argument("--email_alerts", default=[], action='append',
+                        dest="email_alerts",
+                        help="Email addresses for alerts [default: none]")
     args = parser.parse_args()
     set_up_logging(args)
 
