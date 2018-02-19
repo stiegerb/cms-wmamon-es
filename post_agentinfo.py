@@ -5,7 +5,7 @@ import json
 import time
 import socket
 import logging
-
+import urllib
 from logging.handlers import RotatingFileHandler
 from argparse import ArgumentParser
 from pprint import pformat
@@ -50,6 +50,7 @@ def load_data_from_cmsweb(args):
                           cert_file=args.cert_file,
                           key_file=args.key_file)
     urn = "/couchdb/wmstats/_design/WMStatsErl/_view/agentInfo"
+    params = {"stale": "update_after"}
     headers = {
                 "Content-type": "application/json",
                 "Accept": "application/json",
@@ -57,8 +58,15 @@ def load_data_from_cmsweb(args):
                 }
 
     try:
+        urn = "%s?%s" % (urn, urllib.urlencode(params, doseq=True))
         con.request("GET", urn, headers=headers)
-        return json.load(con.getresponse())
+        resp = con.getresponse()
+        if resp.status != 200:
+            errorMsg = "Error contacting CMSWEB WMStats\n"
+            errorMsg += "Response status: %s\tResponse reason: %s\n" % (resp.status, resp.reason)
+            raise Exception(errorMsg)
+
+        return json.load(resp)
     except Exception as msg:
         message = 'Error connecting to CMSWeb: %s' % str(msg)
         send_email_alert(args.email_alerts,
@@ -66,6 +74,9 @@ def load_data_from_cmsweb(args):
                          message)
         logging.error(message)
         return None
+    finally:
+        conn.close()
+
 
 def data_fixup(raw_data):
     """Remove some unwanted key and add some possibly missing keys"""
