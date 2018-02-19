@@ -75,7 +75,7 @@ def load_data_from_cmsweb(args):
         logging.error(message)
         return None
     finally:
-        conn.close()
+        con.close()
 
 
 def data_fixup(raw_data):
