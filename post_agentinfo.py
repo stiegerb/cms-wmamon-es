@@ -319,12 +319,6 @@ def main(args):
     processed_data, site_data, prio_data, work_data = process_data(raw_data)
     if not processed_data: return -1
 
-    # Submit to local UNL ES instance
-    submit_to_elastic(processed_data, index_name='wmamon-dummy', args=args)
-    submit_to_elastic(site_data, index_name='wmamon-dummy-sites', doc_type='site_info', args=args)
-    submit_to_elastic(prio_data, index_name='wmamon-dummy-priorities', doc_type='priority_info', args=args)
-    submit_to_elastic(work_data, index_name='wmamon-dummy-work', doc_type='work_info', args=args)
-
     # Submit to CERN MONIT
     new_data = [d for d in processed_data if check_timestamp_in_cache(d)]
     if not new_data:
@@ -342,6 +336,13 @@ def main(args):
     logging.warning("  Documents submitted for prio info: %d", len(prio_data_sent))
     logging.warning("  Documents submitted for work info: %d", len(work_data_sent))
 
+    # Submit to local UNL ES instance
+    if args.feed_es:
+        submit_to_elastic(processed_data, index_name='wmamon-dummy', args=args)
+        submit_to_elastic(site_data, index_name='wmamon-dummy-sites', doc_type='site_info', args=args)
+        submit_to_elastic(prio_data, index_name='wmamon-dummy-priorities', doc_type='priority_info', args=args)
+        submit_to_elastic(work_data, index_name='wmamon-dummy-work', doc_type='work_info', args=args)
+
     return 0
 
 if __name__ == '__main__':
@@ -351,6 +352,9 @@ if __name__ == '__main__':
     parser.add_argument("--recreate", action='store_true',
                         dest="recreate_index",
                         help="Recreate the index")
+    parser.add_argument("--feed_es", action='store_true',
+                        dest="feed_es",
+                        help="Feed also to the local ES instance")
     parser.add_argument("-i", "--index_prefix", default="wmamon-dummy",
                         type=str, dest="index_prefix",
                         help="Index prefix to use [default: %(default)s]")
