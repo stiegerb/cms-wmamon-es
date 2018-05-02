@@ -105,16 +105,8 @@ def process_site_information(raw_data):
             possibleJobsPerSite = doc['value']['LocalWQ_INFO'].pop('possibleJobsPerSite', [])
             uniqueJobsPerSite   = doc['value']['LocalWQ_INFO'].pop('uniqueJobsPerSite', [])
         except KeyError as e:
-            if doc['value']['agent_url'] == 'global_workqueue':
-                possibleJobsPerSite = doc['value'].pop('possibleJobsPerSite', [])
-                uniqueJobsPerSite = doc['value'].pop('uniqueJobsPerSite', [])
-                # thresholds are not availablein global workqueue, so let's fake it
-                for status, items in possibleJobsPerSite.iteritems():
-                    for item in items:
-                        thresholds.setdefault(item['site_name'], {})
-            else:
-                logging.debug('Missing key in %s: %s' % (doc['value']['agent_url'], str(e)))
-                continue
+            logging.debug('Missing key in %s: %s' % (doc['value']['agent_url'], str(e)))
+            continue
 
         for site in sorted(thresholds):
             site_doc = {}
@@ -161,11 +153,8 @@ def process_work_information(raw_data):
         try:
             workByStatus = doc['value']['LocalWQ_INFO'].pop('workByStatus', [])
         except KeyError as e:
-            if doc['value']['agent_url'] == 'global_workqueue':
-                workByStatus = doc['value'].pop('workByStatus', [])
-            else:
-                logging.debug('Missing key in %s: %s' % (doc['value']['agent_url'], str(e)))
-                continue
+            logging.debug('Missing key in %s: %s' % (doc['value']['agent_url'], str(e)))
+            continue
 
         for status_info in workByStatus:
             work_doc = {}
